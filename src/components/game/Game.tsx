@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { adjustDifficulty, AdjustDifficultyInput } from '@/ai/flows/dynamic-difficulty-adjustment';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 // Game constants
 const GAME_WIDTH = 400;
@@ -45,6 +47,7 @@ export default function Game() {
 
   const [_, forceRender] = useState(0);
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   const resetGame = useCallback(() => {
     playerRef.current = { x: GAME_WIDTH / 2 - PLAYER_SIZE / 2, y: GAME_HEIGHT - 50, vy: 0 };
@@ -220,36 +223,62 @@ export default function Game() {
   const currentFinalScore = Math.floor(height) + score * 10;
   
   return (
-    <div className="relative bg-black border-4 border-primary shadow-2xl shadow-primary/30 overflow-hidden" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
-      {gameState === 'start' && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
-          <h1 className="font-headline text-5xl font-bold text-primary animate-pulse">Data Rush</h1>
-          <p className="text-lg mt-2 mb-8 text-muted-foreground">Press Start to Ascend</p>
-          <Button size="lg" onClick={resetGame}>Start Game</Button>
-        </div>
-      )}
-      {gameState === 'gameOver' && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
-          <h2 className="font-headline text-5xl font-bold text-destructive">Game Over</h2>
-          <p className="text-xl mt-4 text-primary-foreground">Final Score: <span className="text-accent font-bold">{finalScore}</span></p>
-          <p className="text-md text-muted-foreground">Height: {Math.floor(heightRef.current)}m | Bits: {score}</p>
-          <Button size="lg" onClick={resetGame} className="mt-8">Play Again</Button>
-        </div>
-      )}
+    <div className="flex flex-col items-center justify-center w-full h-full">
+      <div className="relative bg-black border-4 border-primary shadow-2xl shadow-primary/30 overflow-hidden" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
+        {gameState === 'start' && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+            <h1 className="font-headline text-5xl font-bold text-primary animate-pulse">Data Rush</h1>
+            <p className="text-lg mt-2 mb-8 text-muted-foreground">Press Start to Ascend</p>
+            <Button size="lg" onClick={resetGame}>Start Game</Button>
+          </div>
+        )}
+        {gameState === 'gameOver' && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+            <h2 className="font-headline text-5xl font-bold text-destructive">Game Over</h2>
+            <p className="text-xl mt-4 text-primary-foreground">Final Score: <span className="text-accent font-bold">{finalScore}</span></p>
+            <p className="text-md text-muted-foreground">Height: {Math.floor(heightRef.current)}m | Bits: {score}</p>
+            <Button size="lg" onClick={resetGame} className="mt-8">Play Again</Button>
+          </div>
+        )}
 
-      {/* Player */}
-      <div className="absolute bg-primary" style={{ left: playerRef.current.x, top: playerRef.current.y, width: PLAYER_SIZE, height: PLAYER_SIZE }} />
-      {/* Platforms */}
-      {platformsRef.current.map(p => <div key={p.id} className="absolute bg-primary/50" style={{ left: p.x, top: p.y, width: p.width, height: PLATFORM_HEIGHT }} /> )}
-      {/* Bits */}
-      {bitsRef.current.map(b => <div key={b.id} className="absolute bg-accent shadow-lg shadow-accent/50 animate-pulse" style={{ left: b.x, top: b.y, width: BIT_SIZE, height: BIT_SIZE, borderRadius: '50%' }} /> )}
-      {/* Obstacles */}
-      {obstaclesRef.current.map(o => <div key={o.id} className="absolute bg-destructive" style={{ left: o.x, top: o.y, width: OBSTACLE_WIDTH, height: OBSTACLE_HEIGHT }} /> )}
-      
-      {gameState === 'playing' && (
-        <div className="absolute top-4 right-4 text-right font-headline text-white z-10">
-          <p className="text-lg">Score: <span className="text-accent font-bold">{currentFinalScore}</span></p>
-          <p className="text-sm text-muted-foreground">Height: {Math.floor(height)}m</p>
+        {/* Player */}
+        <div className="absolute bg-primary" style={{ left: playerRef.current.x, top: playerRef.current.y, width: PLAYER_SIZE, height: PLAYER_SIZE }} />
+        {/* Platforms */}
+        {platformsRef.current.map(p => <div key={p.id} className="absolute bg-primary/50" style={{ left: p.x, top: p.y, width: p.width, height: PLATFORM_HEIGHT }} /> )}
+        {/* Bits */}
+        {bitsRef.current.map(b => <div key={b.id} className="absolute bg-accent shadow-lg shadow-accent/50 animate-pulse" style={{ left: b.x, top: b.y, width: BIT_SIZE, height: BIT_SIZE, borderRadius: '50%' }} /> )}
+        {/* Obstacles */}
+        {obstaclesRef.current.map(o => <div key={o.id} className="absolute bg-destructive" style={{ left: o.x, top: o.y, width: OBSTACLE_WIDTH, height: OBSTACLE_HEIGHT }} /> )}
+        
+        {gameState === 'playing' && (
+          <div className="absolute top-4 right-4 text-right font-headline text-white z-10">
+            <p className="text-lg">Score: <span className="text-accent font-bold">{currentFinalScore}</span></p>
+            <p className="text-sm text-muted-foreground">Height: {Math.floor(height)}m</p>
+          </div>
+        )}
+      </div>
+      {isMobile && gameState === 'playing' && (
+        <div className="flex justify-between w-full max-w-sm mt-4 px-4">
+          <Button
+            size="lg"
+            className="p-8 text-2xl"
+            onTouchStart={() => (keysRef.current['ArrowLeft'] = true)}
+            onTouchEnd={() => (keysRef.current['ArrowLeft'] = false)}
+            onMouseDown={() => (keysRef.current['ArrowLeft'] = true)}
+            onMouseUp={() => (keysRef.current['ArrowLeft'] = false)}
+          >
+            <ArrowLeft />
+          </Button>
+          <Button
+            size="lg"
+            className="p-8 text-2xl"
+            onTouchStart={() => (keysRef.current['ArrowRight'] = true)}
+            onTouchEnd={() => (keysRef.current['ArrowRight'] = false)}
+            onMouseDown={() => (keysRef.current['ArrowRight'] = true)}
+            onMouseUp={() => (keysRef.current['ArrowRight'] = false)}
+          >
+            <ArrowRight />
+          </Button>
         </div>
       )}
     </div>
