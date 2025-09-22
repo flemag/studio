@@ -6,6 +6,12 @@ import { adjustDifficulty, AdjustDifficultyInput } from '@/ai/flows/dynamic-diff
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
+import Player from './elements/Player';
+import Platform from './elements/Platform';
+import Bit from './elements/Bit';
+import Obstacle from './elements/Obstacle';
+import Starfield from './elements/Starfield';
+import { playJumpSound, playBitSound, playGameOverSound, resumeAudioContext } from '@/lib/audio';
 
 // Game constants
 const GAME_WIDTH = 400;
@@ -101,6 +107,7 @@ export default function Game() {
     gameTimeRef.current = 0;
     obstaclesAvoidedRef.current = 0;
     setGameState('playing');
+    resumeAudioContext();
   }, []);
 
   useEffect(() => {
@@ -182,6 +189,7 @@ export default function Game() {
           if (x < platform.x + platform.width && x + PLAYER_SIZE > platform.x && playerBottom >= platform.y && playerBottom <= platform.y + PLATFORM_HEIGHT) {
             vy = JUMP_VELOCITY;
             y = platform.y - PLAYER_SIZE;
+            playJumpSound();
           }
         });
       }
@@ -189,6 +197,7 @@ export default function Game() {
       bitsRef.current = bitsRef.current.filter(bit => {
         if (x < bit.x + BIT_SIZE && x + PLAYER_SIZE > bit.x && y < bit.y + BIT_SIZE && y + PLAYER_SIZE > bit.y) {
           setScore(s => s + 1);
+          playBitSound();
           return false;
         }
         return true;
@@ -205,6 +214,7 @@ export default function Game() {
       if (isGameOver) {
         setFinalScore(Math.floor(heightRef.current) + score * 10);
         setGameState('gameOver');
+        playGameOverSound();
         return;
       }
       
@@ -250,7 +260,8 @@ export default function Game() {
   return (
     <div ref={gameContainerRef} className="flex flex-col items-center justify-center w-full h-full">
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}>
-        <div className="relative bg-black border-4 border-primary shadow-2xl shadow-primary/30 overflow-hidden" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
+        <div className="relative border-4 border-primary shadow-2xl shadow-primary/30 overflow-hidden" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
+          <Starfield starCount={100} gameWidth={GAME_WIDTH} gameHeight={GAME_HEIGHT} scrollOffset={heightRef.current} />
           {gameState === 'start' && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
               <h1 className="font-headline text-5xl font-bold text-primary animate-pulse">Data Rush</h1>
@@ -268,13 +279,13 @@ export default function Game() {
           )}
 
           {/* Player */}
-          <div className="absolute bg-primary" style={{ left: playerRef.current.x, top: playerRef.current.y, width: PLAYER_SIZE, height: PLAYER_SIZE }} />
+          <Player x={playerRef.current.x} y={playerRef.current.y} />
           {/* Platforms */}
-          {platformsRef.current.map(p => <div key={p.id} className="absolute bg-primary/50" style={{ left: p.x, top: p.y, width: p.width, height: PLATFORM_HEIGHT }} /> )}
+          {platformsRef.current.map(p => <Platform key={p.id} platform={p} />)}
           {/* Bits */}
-          {bitsRef.current.map(b => <div key={b.id} className="absolute bg-accent shadow-lg shadow-accent/50 animate-pulse" style={{ left: b.x, top: b.y, width: BIT_SIZE, height: BIT_SIZE, borderRadius: '50%' }} /> )}
+          {bitsRef.current.map(b => <Bit key={b.id} bit={b} />)}
           {/* Obstacles */}
-          {obstaclesRef.current.map(o => <div key={o.id} className="absolute bg-destructive" style={{ left: o.x, top: o.y, width: OBSTACLE_WIDTH, height: OBSTACLE_HEIGHT }} /> )}
+          {obstaclesRef.current.map(o => <Obstacle key={o.id} obstacle={o} />)}
 
           {gameState === 'playing' && (
             <div className="absolute top-4 right-4 text-right font-headline text-white z-10">
