@@ -98,3 +98,13 @@ body {
     transform: translate(0,0) skew(5deg);
   }
 }
+
+@keyframes squash-player {
+  0% { transform-origin: bottom; transform: scale(1, 1); }
+  50% { transform-origin: bottom; transform: scale(1.2, 0.8); }
+  100% { transform-origin: bottom; transform: scale(1, 1); }
+}
+
+.animate-squash-player {
+  animation: squash-player 200ms ease-in-out;
+}

@@ -35,10 +35,11 @@ const AI_INTERVAL = 20000; // 20 seconds
 
 // Types
 type PowerUpType = 'double-jump' | 'shield';
+type ObstacleVariant = 'spiky-bar' | 'solid-block';
 type PlayerState = { x: number; y: number; vy: number; hasDoubleJump: boolean; doubleJumpUsed: boolean; isShielded: boolean; };
 type Platform = { id: number; x: number; y: number; width: number; };
 type Bit = { id: number; x: number; y: number; };
-type Obstacle = { id: number; x: number; y: number; vx: number; };
+type Obstacle = { id: number; x: number; y: number; vx: number; variant: ObstacleVariant; };
 type PowerUp = { id: number; x: number; y: number; type: PowerUpType };
 type DifficultyParams = { obstacleFrequency: number; platformSpacing: number; };
 
@@ -89,6 +90,26 @@ export default function Game() {
         });
       });
   }, [screenshotAreaRef, toast]);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 0) return;
+    const touchX = e.touches[0].clientX;
+    const gameRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const localX = touchX - gameRect.left;
+
+    if (localX < gameRect.width / 2) {
+        keysRef.current['ArrowLeft'] = true;
+        keysRef.current['ArrowRight'] = false;
+    } else {
+        keysRef.current['ArrowRight'] = true;
+        keysRef.current['ArrowLeft'] = false;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    keysRef.current['ArrowLeft'] = false;
+    keysRef.current['ArrowRight'] = false;
+  };
 
   useEffect(() => {
     const updateScale = () => {
@@ -299,7 +320,8 @@ export default function Game() {
           bitsRef.current.push({id: newId, x: newX + newWidth / 2 - BIT_SIZE/2, y: newY - BIT_SIZE - 5});
         }
         if (Math.random() < difficultyRef.current.obstacleFrequency) {
-          obstaclesRef.current.push({id: newId, x: newX, y: newY - OBSTACLE_HEIGHT - 5, vx: (Math.random() - 0.5) * 4});
+          const obstacleVariant: ObstacleVariant = Math.random() < 0.5 ? 'spiky-bar' : 'solid-block';
+          obstaclesRef.current.push({id: newId, x: newX, y: newY - OBSTACLE_HEIGHT - 5, vx: (Math.random() - 0.5) * 4, variant: obstacleVariant});
           obstaclesAvoidedRef.current++;
         }
 
@@ -355,7 +377,13 @@ export default function Game() {
             </div>
           )}
 
-          <Player x={playerRef.current.x} y={playerRef.current.y} isShielded={playerRef.current.isShielded} />
+          <Player
+            x={playerRef.current.x}
+            y={playerRef.current.y}
+            vy={playerRef.current.vy}
+            direction={keysRef.current.ArrowLeft ? 'left' : keysRef.current.ArrowRight ? 'right' : 'none'}
+            isShielded={playerRef.current.isShielded}
+          />
           {platformsRef.current.map(p => <Platform key={p.id} platform={p} />)}
           {bitsRef.current.map(b => <Bit key={b.id} bit={b} />)}
           {powerUpsRef.current.map(p => <PowerUp key={p.id} powerUp={p} />)}
@@ -367,31 +395,14 @@ export default function Game() {
               <p className="text-sm text-muted-foreground">Height: {Math.floor(height)}m</p>
             </div>
           )}
+          {isMobile && gameState === 'playing' && (
+            <div
+              className="absolute inset-0 z-20"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            />
+          )}
         </div>
-        {isMobile && gameState === 'playing' && (
-          <div className="flex justify-between w-full mt-4" style={{width: GAME_WIDTH}}>
-            <Button
-              size="lg"
-              className="p-8 text-2xl"
-              onTouchStart={() => (keysRef.current['ArrowLeft'] = true)}
-              onTouchEnd={() => (keysRef.current['ArrowLeft'] = false)}
-              onMouseDown={() => (keysRef.current['ArrowLeft'] = true)}
-              onMouseUp={() => (keysRef.current['ArrowLeft'] = false)}
-            >
-              <ArrowLeft />
-            </Button>
-            <Button
-              size="lg"
-              className="p-8 text-2xl"
-              onTouchStart={() => (keysRef.current['ArrowRight'] = true)}
-              onTouchEnd={() => (keysRef.current['ArrowRight'] = false)}
-              onMouseDown={() => (keysRef.current['ArrowRight'] = true)}
-              onMouseUp={() => (keysRef.current['ArrowRight'] = false)}
-            >
-              <ArrowRight />
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );
