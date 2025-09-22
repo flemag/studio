@@ -5,13 +5,19 @@ import { useToast } from "@/hooks/use-toast";
 import { adjustDifficulty, AdjustDifficultyInput } from '@/ai/flows/dynamic-difficulty-adjustment';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera } from 'lucide-react';
+import { toPng } from 'html-to-image';
 import Player from './elements/Player';
 import Platform from './elements/Platform';
 import Bit from './elements/Bit';
 import Obstacle from './elements/Obstacle';
-import Starfield from './elements/Starfield';
-import { playJumpSound, playBitSound, playGameOverSound, resumeAudioContext } from '@/lib/audio';
+import PowerUp from './elements/PowerUp';
+import Starfield, { StarfieldHandles } from './elements/Starfield';
+import {
+  playJumpSound, playBitSound, playGameOverSound,
+  resumeAudioContext, startMusic, stopMusic,
+  playDoubleJumpSound, playPowerUpCollectSound, playShieldBreakSound
+} from '@/lib/audio';
 
 // Game constants
 const GAME_WIDTH = 400;
@@ -28,10 +34,12 @@ const OBSTACLE_HEIGHT = 15;
 const AI_INTERVAL = 20000; // 20 seconds
 
 // Types
-type PlayerState = { x: number; y: number; vy: number; };
+type PowerUpType = 'double-jump' | 'shield';
+type PlayerState = { x: number; y: number; vy: number; hasDoubleJump: boolean; doubleJumpUsed: boolean; isShielded: boolean; };
 type Platform = { id: number; x: number; y: number; width: number; };
 type Bit = { id: number; x: number; y: number; };
 type Obstacle = { id: number; x: number; y: number; vx: number; };
+type PowerUp = { id: number; x: number; y: number; type: PowerUpType };
 type DifficultyParams = { obstacleFrequency: number; platformSpacing: number; };
 
 export default function Game() {
@@ -41,22 +49,46 @@ export default function Game() {
   const [finalScore, setFinalScore] = useState(0);
   const [scale, setScale] = useState(1);
   
-  const playerRef = useRef<PlayerState>({ x: 0, y: 0, vy: 0 });
+  const playerRef = useRef<PlayerState>({ x: 0, y: 0, vy: 0, hasDoubleJump: false, doubleJumpUsed: false, isShielded: false });
   const platformsRef = useRef<Platform[]>([]);
   const bitsRef = useRef<Bit[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
+  const powerUpsRef = useRef<PowerUp[]>([]);
   const difficultyRef = useRef<DifficultyParams>({ obstacleFrequency: 0.2, platformSpacing: 0.5 });
   const keysRef = useRef<{ [key: string]: boolean }>({});
   const gameLoopRef = useRef<number>();
   const gameTimeRef = useRef(0);
   const obstaclesAvoidedRef = useRef(0);
   const heightRef = useRef(0);
+  const starfieldRef = useRef<StarfieldHandles>(null);
 
   const [_, forceRender] = useState(0);
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
+  const screenshotAreaRef = useRef<HTMLDivElement>(null);
+
+  const handleScreenshot = useCallback(() => {
+    if (screenshotAreaRef.current === null) {
+      return;
+    }
+    toPng(screenshotAreaRef.current, { cacheBust: true, })
+      .then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = 'data-rush-score.png';
+        link.href = dataUrl;
+        link.click();
+      })
+      .catch((err) => {
+        console.error('oops, something went wrong!', err);
+        toast({
+            variant: "destructive",
+            title: "Screenshot Failed",
+            description: "Could not generate an image of your score.",
+        });
+      });
+  }, [screenshotAreaRef, toast]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -81,7 +113,7 @@ export default function Game() {
   }, [isMobile]);
 
   const resetGame = useCallback(() => {
-    playerRef.current = { x: GAME_WIDTH / 2 - PLAYER_SIZE / 2, y: GAME_HEIGHT - 50, vy: 0 };
+    playerRef.current = { x: GAME_WIDTH / 2 - PLAYER_SIZE / 2, y: GAME_HEIGHT - 50, vy: 0, hasDoubleJump: false, doubleJumpUsed: false, isShielded: false };
 
     const initialPlatforms: Platform[] = [];
     const basePlatform = { id: Date.now(), x: GAME_WIDTH / 2 - 50, y: GAME_HEIGHT - 20, width: 100 };
@@ -101,6 +133,7 @@ export default function Game() {
     playerRef.current.vy = JUMP_VELOCITY;
     bitsRef.current = [];
     obstaclesRef.current = [];
+    powerUpsRef.current = [];
     setScore(0);
     setHeight(0);
     heightRef.current = 0;
@@ -108,16 +141,24 @@ export default function Game() {
     obstaclesAvoidedRef.current = 0;
     setGameState('playing');
     resumeAudioContext();
+    startMusic();
   }, []);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === ' ') {
         e.preventDefault();
         keysRef.current[e.key] = isDown;
       }
     };
-    const handleKeyDown = (e: KeyboardEvent) => handleKey(e, true);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      handleKey(e, true);
+      if ((e.key === 'ArrowUp' || e.key === ' ') && playerRef.current.hasDoubleJump && !playerRef.current.doubleJumpUsed) {
+        playerRef.current.vy = JUMP_VELOCITY * 1.2;
+        playerRef.current.doubleJumpUsed = true;
+        playDoubleJumpSound();
+      }
+    };
     const handleKeyUp = (e: KeyboardEvent) => handleKey(e, false);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -127,7 +168,6 @@ export default function Game() {
     };
   }, []);
   
-  // AI Difficulty Adjustment
   useEffect(() => {
     if (gameState !== 'playing') return;
     const intervalId = setInterval(async () => {
@@ -154,7 +194,6 @@ export default function Game() {
     return () => clearInterval(intervalId);
   }, [gameState, score, toast]);
 
-  // Game Loop
   useEffect(() => {
     if (gameState !== 'playing') {
       if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
@@ -181,6 +220,8 @@ export default function Game() {
         platformsRef.current.forEach(p => p.y += scrollOffset);
         bitsRef.current.forEach(b => b.y += scrollOffset);
         obstaclesRef.current.forEach(o => o.y += scrollOffset);
+        powerUpsRef.current.forEach(p => p.y += scrollOffset);
+        starfieldRef.current?.updateScroll(heightRef.current);
       }
       
       const playerBottom = y + PLAYER_SIZE;
@@ -189,6 +230,7 @@ export default function Game() {
           if (x < platform.x + platform.width && x + PLAYER_SIZE > platform.x && playerBottom >= platform.y && playerBottom <= platform.y + PLATFORM_HEIGHT) {
             vy = JUMP_VELOCITY;
             y = platform.y - PLAYER_SIZE;
+            playerRef.current.doubleJumpUsed = false;
             playJumpSound();
           }
         });
@@ -203,11 +245,32 @@ export default function Game() {
         return true;
       });
 
-      let isGameOver = false;
-      obstaclesRef.current.forEach(obstacle => {
-        if (x < obstacle.x + OBSTACLE_WIDTH && x + PLAYER_SIZE > obstacle.x && y < obstacle.y + OBSTACLE_HEIGHT && y + PLAYER_SIZE > obstacle.y) {
-          isGameOver = true;
+      powerUpsRef.current = powerUpsRef.current.filter(powerUp => {
+        if (x < powerUp.x + BIT_SIZE && x + PLAYER_SIZE > powerUp.x && y < powerUp.y + BIT_SIZE && y + PLAYER_SIZE > powerUp.y) {
+          if (powerUp.type === 'double-jump') {
+            playerRef.current.hasDoubleJump = true;
+          } else if (powerUp.type === 'shield') {
+            playerRef.current.isShielded = true;
+            setTimeout(() => { playerRef.current.isShielded = false; }, 10000);
+          }
+          playPowerUpCollectSound();
+          return false;
         }
+        return true;
+      });
+
+      let isGameOver = false;
+      obstaclesRef.current = obstaclesRef.current.filter(obstacle => {
+        if (x < obstacle.x + OBSTACLE_WIDTH && x + PLAYER_SIZE > obstacle.x && y < obstacle.y + OBSTACLE_HEIGHT && y + PLAYER_SIZE > obstacle.y) {
+          if (playerRef.current.isShielded) {
+            playerRef.current.isShielded = false;
+            playShieldBreakSound();
+            return false;
+          } else {
+            isGameOver = true;
+          }
+        }
+        return true;
       });
       if (y > GAME_HEIGHT) isGameOver = true;
       
@@ -215,10 +278,11 @@ export default function Game() {
         setFinalScore(Math.floor(heightRef.current) + score * 10);
         setGameState('gameOver');
         playGameOverSound();
+        stopMusic();
         return;
       }
       
-      playerRef.current = { x, y, vy };
+      playerRef.current = { ...playerRef.current, x, y, vy };
 
       platformsRef.current = platformsRef.current.filter(p => p.y < GAME_HEIGHT + 50);
       let highestPlatform = platformsRef.current.reduce((max, p) => p.y < max.y ? p : max, {y: GAME_HEIGHT});
@@ -238,6 +302,11 @@ export default function Game() {
           obstaclesRef.current.push({id: newId, x: newX, y: newY - OBSTACLE_HEIGHT - 5, vx: (Math.random() - 0.5) * 4});
           obstaclesAvoidedRef.current++;
         }
+
+        if (Math.random() < 0.1) {
+            const powerUpType = Math.random() < 0.5 ? 'shield' : 'double-jump';
+            powerUpsRef.current.push({id: newId, x: newX + newWidth / 2 - BIT_SIZE/2, y: newY - BIT_SIZE - 5, type: powerUpType});
+        }
       }
 
       obstaclesRef.current.forEach(o => {
@@ -247,6 +316,7 @@ export default function Game() {
 
       bitsRef.current = bitsRef.current.filter(b => b.y < GAME_HEIGHT + 50);
       obstaclesRef.current = obstaclesRef.current.filter(o => o.y < GAME_HEIGHT + 50);
+      powerUpsRef.current = powerUpsRef.current.filter(p => p.y < GAME_HEIGHT + 50);
       
       forceRender(r => r + 1);
       gameLoopRef.current = requestAnimationFrame(loop);
@@ -261,7 +331,7 @@ export default function Game() {
     <div ref={gameContainerRef} className="flex flex-col items-center justify-center w-full h-full">
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}>
         <div className="relative border-4 border-primary shadow-2xl shadow-primary/30 overflow-hidden" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
-          <Starfield starCount={100} gameWidth={GAME_WIDTH} gameHeight={GAME_HEIGHT} scrollOffset={heightRef.current} />
+          <Starfield ref={starfieldRef} starCount={100} gameWidth={GAME_WIDTH} gameHeight={GAME_HEIGHT} />
           {gameState === 'start' && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
               <h1 className="font-headline text-5xl font-bold text-primary animate-pulse">Data Rush</h1>
@@ -271,20 +341,24 @@ export default function Game() {
           )}
           {gameState === 'gameOver' && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
-              <h2 className="font-headline text-5xl font-bold text-destructive">Game Over</h2>
-              <p className="text-xl mt-4 text-primary-foreground">Final Score: <span className="text-accent font-bold">{finalScore}</span></p>
-              <p className="text-md text-muted-foreground">Height: {Math.floor(heightRef.current)}m | Bits: {score}</p>
-              <Button size="lg" onClick={resetGame} className="mt-8">Play Again</Button>
+              <div ref={screenshotAreaRef} className="p-8 bg-background rounded-lg shadow-xl flex flex-col items-center justify-center">
+                <h2 className="font-headline text-5xl font-bold text-destructive">Game Over</h2>
+                <p className="text-xl mt-4 text-primary-foreground">Final Score: <span className="text-accent font-bold">{finalScore}</span></p>
+                <p className="text-md text-muted-foreground">Height: {Math.floor(heightRef.current)}m | Bits: {score}</p>
+              </div>
+              <div className="flex gap-4 mt-8">
+                <Button size="lg" onClick={resetGame}>Play Again</Button>
+                <Button size="lg" variant="outline" onClick={handleScreenshot}>
+                  <Camera className="mr-2 h-5 w-5" /> Share
+                </Button>
+              </div>
             </div>
           )}
 
-          {/* Player */}
-          <Player x={playerRef.current.x} y={playerRef.current.y} />
-          {/* Platforms */}
+          <Player x={playerRef.current.x} y={playerRef.current.y} isShielded={playerRef.current.isShielded} />
           {platformsRef.current.map(p => <Platform key={p.id} platform={p} />)}
-          {/* Bits */}
           {bitsRef.current.map(b => <Bit key={b.id} bit={b} />)}
-          {/* Obstacles */}
+          {powerUpsRef.current.map(p => <PowerUp key={p.id} powerUp={p} />)}
           {obstaclesRef.current.map(o => <Obstacle key={o.id} obstacle={o} />)}
 
           {gameState === 'playing' && (
